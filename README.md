@@ -50,6 +50,16 @@ data:
 - A Volkswagen WeConnect account with at least one vehicle
 - The [weconnect](https://pypi.org/project/weconnect/) Python library (installed automatically)
 
+## Built with
+
+This integration was developed with [Claude Code](https://claude.ai/claude-code) by Anthropic.
+
+## Credits & Sources
+
+- [weconnect](https://github.com/tillsteinbach/WeConnect-python) – Python library for the Volkswagen WeConnect API by Till Steinbach
+- [Home Assistant Developer Documentation](https://developers.home-assistant.io/) – Integration architecture, config flows, coordinators, and entity patterns
+- [Home Assistant Core](https://github.com/home-assistant/core) – Reference implementations for ImageEntity, ButtonEntity, and DataUpdateCoordinator
+
 ## License
 
 MIT License
