@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "VW Images – Login",
+        "description": "Gib deine Volkswagen WeConnect Zugangsdaten ein.",
+        "data": {
+          "username": "E-Mail-Adresse",
+          "password": "Passwort"
+        }
+      },
+      "reauth_confirm": {
+        "title": "VW Images – Erneut authentifizieren",
+        "description": "Deine Zugangsdaten sind nicht mehr gültig. Bitte gib deine aktuellen Daten ein.",
+        "data": {
+          "username": "E-Mail-Adresse",
+          "password": "Passwort"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ungültige Zugangsdaten. Bitte überprüfe E-Mail und Passwort.",
+      "cannot_connect": "Verbindung zu VW WeConnect nicht möglich. Bitte später erneut versuchen."
+    },
+    "abort": {
+      "already_configured": "Dieser Account ist bereits konfiguriert.",
+      "reauth_successful": "Authentifizierung erfolgreich aktualisiert."
+    }
+  }
+}

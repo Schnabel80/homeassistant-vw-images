@@ -1,0 +1,12 @@
+{
+  "domain": "vw_images",
+  "name": "VW Images",
+  "version": "1.0.0",
+  "integration_type": "hub",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "",
+  "requirements": ["weconnect==0.60.11"],
+  "dependencies": [],
+  "iot_class": "cloud_polling"
+}

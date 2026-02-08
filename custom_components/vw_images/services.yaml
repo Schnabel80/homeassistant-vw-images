@@ -1,0 +1,11 @@
+update_images:
+  name: Update Images
+  description: Refreshes vehicle images from VW WeConnect.
+  fields:
+    vin:
+      name: VIN
+      description: Optional vehicle identification number. If empty, all vehicles will be updated.
+      required: false
+      example: "WVWZZZ3CZ9E123456"
+      selector:
+        text:
