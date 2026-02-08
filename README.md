@@ -20,9 +20,15 @@ A custom Home Assistant integration that provides vehicle images from your Volks
 4. Search for **VW Images**
 5. Enter your Volkswagen WeConnect credentials
 
-### HACS (coming soon)
+### HACS (Custom Repository)
 
-This integration is not yet available in HACS.
+1. Open HACS in your Home Assistant
+2. Click the three dots menu (top right) > **Custom repositories**
+3. Enter: `https://github.com/Schnabel80/homeassistant-vw-images`
+4. Select category: **Integration**
+5. Click **Add**
+6. Search for **VW Images** in HACS and install it
+7. Restart Home Assistant
 
 ## Usage
 
