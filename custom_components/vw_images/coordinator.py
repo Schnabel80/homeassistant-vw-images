@@ -92,23 +92,20 @@ class VWImagesCoordinator(DataUpdateCoordinator):
                 nickname = self._safe_attr(vehicle, "nickname")
 
                 # Bild-Referenzen speichern, nicht das gesamte Vehicle-Objekt
-                pictures_car_ref = None
-                pictures_status_ref = None
+                picture_refs = {}
                 try:
                     if hasattr(vehicle, "pictures"):
-                        if "car" in vehicle.pictures:
-                            pictures_car_ref = vehicle.pictures["car"]
-                        if "statusWithBadge" in vehicle.pictures:
-                            pictures_status_ref = vehicle.pictures["statusWithBadge"]
+                        for key in ("car", "carWithBadge", "status", "statusWithBadge"):
+                            if key in vehicle.pictures:
+                                picture_refs[key] = vehicle.pictures[key]
                 except Exception:
-                    _LOGGER.debug("Konnte Bild-Referenz nicht lesen für ***%s", vin[-4:])
+                    _LOGGER.debug("Konnte Bild-Referenzen nicht lesen für ***%s", vin[-4:])
 
                 vehicles[vin] = {
                     "vin": vin,
                     "model": model or "VW Fahrzeug",
                     "nickname": nickname,
-                    "pictures_car_ref": pictures_car_ref,
-                    "pictures_status_ref": pictures_status_ref,
+                    "picture_refs": picture_refs,
                 }
 
             _LOGGER.info("%d Fahrzeug(e) geladen", len(vehicles))

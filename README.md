@@ -4,7 +4,7 @@ A custom Home Assistant integration that provides vehicle images from your Volks
 
 ## Features
 
-- Displays a vehicle image for each car in your VW WeConnect account
+- Provides **4 different image types** per vehicle (see [Entities](#entities))
 - On-demand updates only (no cyclic polling) via button press or service call
 - Rate limiting to prevent API overuse (60 seconds minimum between requests)
 - Re-authentication flow for password changes
@@ -30,11 +30,32 @@ A custom Home Assistant integration that provides vehicle images from your Volks
 6. Search for **VW Images** in HACS and install it
 7. Restart Home Assistant
 
+## Entities
+
+For each vehicle in your account, the integration creates the following entities:
+
+### Image Entities
+
+| Entity | Picture Key | View | Dynamic | Description |
+|---|---|---|---|---|
+| **Vehicle Image** | `car` | 3/4 side view | No | Static photo of your vehicle. Always the same regardless of vehicle state. |
+| **Vehicle Image with Badges** | `carWithBadge` | 3/4 side view | Yes | Same side view with overlay badges showing charging, lock/unlock, heating/cooling, and warning states. |
+| **Vehicle Status** | `status` | Bird's eye view | Yes | Top-down view with overlays for open/closed doors, windows, and lights. Changes when you open a door or window. |
+| **Vehicle Status with Badges** | `statusWithBadge` | Bird's eye view | Yes | Same top-down view with additional badges for charging, lock/unlock, heating/cooling, parking, and warning states. Most similar to the VW app. |
+
+### Button Entity
+
+| Entity | Description |
+|---|---|
+| **Update Image** | Press to refresh all images from VW WeConnect. |
+
+> **Note:** Only image types available for your vehicle are created. The number of entities may vary depending on your vehicle model and WeConnect capabilities.
+
 ## Usage
 
 ### Button
 
-Each vehicle gets an **Update Image** button entity. Press it to refresh the vehicle image from VW WeConnect.
+Each vehicle gets an **Update Image** button entity. Press it to refresh all vehicle images from VW WeConnect.
 
 ### Service Call
 
