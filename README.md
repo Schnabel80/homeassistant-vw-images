@@ -71,6 +71,50 @@ data:
   vin: "WVWZZZ3CZ9E123456"
 ```
 
+### Automation Examples
+
+You can automatically refresh vehicle images based on sensor changes. Here are some practical examples:
+
+**Refresh images when a door opens or closes:**
+
+```yaml
+automation:
+  - alias: "VW Images: Update on door change"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.your_vw_door_lock
+    action:
+      - delay: "00:00:05"
+      - service: vw_images.update_images
+```
+
+**Refresh images when the charging state changes:**
+
+```yaml
+automation:
+  - alias: "VW Images: Update on charging change"
+    trigger:
+      - platform: state
+        entity_id: sensor.your_vw_charging_state
+    action:
+      - delay: "00:00:10"
+      - service: vw_images.update_images
+```
+
+**Refresh images once every morning:**
+
+```yaml
+automation:
+  - alias: "VW Images: Daily morning update"
+    trigger:
+      - platform: time
+        at: "07:00:00"
+    action:
+      - service: vw_images.update_images
+```
+
+> **Note:** Replace `binary_sensor.your_vw_door_lock` and `sensor.your_vw_charging_state` with the actual entity IDs from your setup. These vary depending on your vehicle integration (e.g., WeConnect, Volkswagen We Connect ID). The short delay before the service call ensures the VW servers have time to update the vehicle status.
+
 ## Requirements
 
 - Home Assistant 2024.1 or newer
