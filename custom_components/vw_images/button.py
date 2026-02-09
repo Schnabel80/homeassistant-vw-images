@@ -57,6 +57,11 @@ class UpdateImageButton(CoordinatorEntity[VWImagesCoordinator], ButtonEntity):
             "model": vehicle_data.get("model"),
         }
 
+    @property
+    def available(self) -> bool:
+        """Button ist immer verfügbar, auch bei fehlgeschlagenem Update."""
+        return True
+
     async def async_press(self) -> None:
         """Button gedrückt: Fahrzeugbilder aktualisieren."""
         _LOGGER.debug("Bild-Update angefordert für ***%s", self._vin[-4:])

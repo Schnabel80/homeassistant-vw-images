@@ -114,11 +114,16 @@ class VWImagesCoordinator(DataUpdateCoordinator):
         except ConfigEntryAuthFailed:
             raise
         except ConnectionError as err:
+            _LOGGER.warning("Netzwerkfehler, Session wird zurückgesetzt")
+            self._weconnect = None
             raise UpdateFailed("Netzwerkfehler bei WeConnect-Verbindung") from err
         except TimeoutError as err:
+            _LOGGER.warning("Zeitüberschreitung, Session wird zurückgesetzt")
+            self._weconnect = None
             raise UpdateFailed("Zeitüberschreitung bei WeConnect-Verbindung") from err
         except Exception as err:
-            _LOGGER.debug("WeConnect Update fehlgeschlagen", exc_info=True)
+            _LOGGER.warning("WeConnect Update fehlgeschlagen, Session wird zurückgesetzt")
+            self._weconnect = None
             raise UpdateFailed("Fehler beim Abrufen der Fahrzeugdaten") from err
 
     def async_cleanup(self) -> None:
