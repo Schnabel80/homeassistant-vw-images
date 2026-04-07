@@ -1,5 +1,7 @@
 """Daten-Koordinator für die VW Images Integration."""
 
+from __future__ import annotations
+
 import logging
 import time
 
@@ -7,14 +9,21 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import MIN_REFRESH_INTERVAL
+from .weconnect_client import WeConnectAPIClient, WeConnectAuthError, WeConnectConnectionError
 
 _LOGGER = logging.getLogger(__name__)
+
+# Mapping: WeConnect API-Bild-ID → Integrations-Picture-Key
+# car_34view  = 3/4-Ansicht des Fahrzeugs
+# car_birdview = Vogelperspektive (für Statusbilder)
+_IMAGE_ID_MAP: dict[str, str] = {
+    "car_34view": "car",
+    "car_birdview": "status",
+}
 
 
 class VWImagesCoordinator(DataUpdateCoordinator):
@@ -28,7 +37,7 @@ class VWImagesCoordinator(DataUpdateCoordinator):
     config_entry: ConfigEntry
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialisiere den Koordinator ohne update_interval."""
+        """Initialisiert den Koordinator ohne update_interval."""
         super().__init__(
             hass,
             _LOGGER,
@@ -36,35 +45,32 @@ class VWImagesCoordinator(DataUpdateCoordinator):
             # Kein update_interval → nur on-demand
         )
         self.config_entry = entry
-        self._weconnect = None
-        self._last_refresh_time: float = 0
+        self._client: WeConnectAPIClient | None = None
+        self._last_refresh_time: float = 0.0
 
     async def _async_setup(self) -> None:
         """Einmalige Einrichtung: WeConnect-Login."""
-        from weconnect import weconnect as wc_module
+        session = async_get_clientsession(self.hass)
+        self._client = WeConnectAPIClient(session)
 
         username = self.config_entry.data[CONF_USERNAME]
         password = self.config_entry.data[CONF_PASSWORD]
 
-        self._weconnect = wc_module.WeConnect(
-            username=username,
-            password=password,
-            updateAfterLogin=False,
-            loginOnInit=False,
-        )
-
         _LOGGER.info("WeConnect Login wird durchgeführt...")
         try:
-            await self.hass.async_add_executor_job(self._weconnect.login)
-        except Exception as err:
-            self._weconnect = None
+            await self._client.login(username, password)
+        except WeConnectAuthError as err:
+            self._client = None
             raise ConfigEntryAuthFailed(
                 "WeConnect-Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen."
             ) from err
+        except WeConnectConnectionError as err:
+            self._client = None
+            raise UpdateFailed(f"Netzwerkfehler beim WeConnect-Login: {err}") from err
         _LOGGER.info("WeConnect Login erfolgreich")
 
     async def _async_update_data(self) -> dict:
-        """Fahrzeugdaten von WeConnect abrufen (mit Rate-Limiting)."""
+        """Fahrzeugdaten und Bilder von WeConnect abrufen (mit Rate-Limiting)."""
         # Rate-Limiting: Mindestabstand zwischen Aufrufen
         now = time.monotonic()
         elapsed = now - self._last_refresh_time
@@ -73,39 +79,45 @@ class VWImagesCoordinator(DataUpdateCoordinator):
                 "Rate-Limit: Nächster Refresh in %d Sekunden möglich",
                 int(MIN_REFRESH_INTERVAL - elapsed),
             )
-            # Gib gecachte Daten zurück statt erneut abzufragen
             if self.data is not None:
                 return self.data
-            # Beim allerersten Mal trotzdem durchlassen
 
         try:
-            if self._weconnect is None:
+            if self._client is None:
                 await self._async_setup()
 
             _LOGGER.debug("Aktualisiere WeConnect Fahrzeugdaten...")
-            await self.hass.async_add_executor_job(self._weconnect.update)
+            vehicles_list = await self._client.get_vehicles()
             self._last_refresh_time = time.monotonic()
 
-            vehicles = {}
-            for vin, vehicle in self._weconnect.vehicles.items():
-                model = self._safe_attr(vehicle, "model")
-                nickname = self._safe_attr(vehicle, "nickname")
+            vehicles: dict = {}
+            for vehicle_data in vehicles_list:
+                vin = vehicle_data.get("vin")
+                if not vin:
+                    continue
 
-                # Bild-Referenzen speichern, nicht das gesamte Vehicle-Objekt
-                picture_refs = {}
-                try:
-                    if hasattr(vehicle, "pictures"):
-                        for key in ("car", "carWithBadge", "status", "statusWithBadge"):
-                            if key in vehicle.pictures:
-                                picture_refs[key] = vehicle.pictures[key]
-                except Exception:
-                    _LOGGER.debug("Konnte Bild-Referenzen nicht lesen für ***%s", vin[-4:])
+                model = vehicle_data.get("model") or "VW Fahrzeug"
+                nickname = vehicle_data.get("nickname")
+
+                # Bild-URLs abrufen
+                image_urls = await self._client.get_vehicle_image_urls(vin)
+
+                # Bilder herunterladen
+                image_bytes: dict[str, bytes] = {}
+                for api_id, picture_key in _IMAGE_ID_MAP.items():
+                    if api_id not in image_urls:
+                        continue
+                    img = await self._client.download_image(image_urls[api_id])
+                    if img:
+                        image_bytes[picture_key] = img
+                        # Badge-Varianten: gleiche Basis-Bilder (ohne Overlay-Compositing)
+                        image_bytes[f"{picture_key}WithBadge"] = img
 
                 vehicles[vin] = {
                     "vin": vin,
-                    "model": model or "VW Fahrzeug",
+                    "model": model,
                     "nickname": nickname,
-                    "picture_refs": picture_refs,
+                    "image_bytes": image_bytes,
                 }
 
             _LOGGER.info("%d Fahrzeug(e) geladen", len(vehicles))
@@ -113,37 +125,18 @@ class VWImagesCoordinator(DataUpdateCoordinator):
 
         except ConfigEntryAuthFailed:
             raise
-        except ConnectionError as err:
-            _LOGGER.warning("Netzwerkfehler, Session wird zurückgesetzt")
-            self._weconnect = None
-            raise UpdateFailed("Netzwerkfehler bei WeConnect-Verbindung") from err
-        except TimeoutError as err:
-            _LOGGER.warning("Zeitüberschreitung, Session wird zurückgesetzt")
-            self._weconnect = None
-            raise UpdateFailed("Zeitüberschreitung bei WeConnect-Verbindung") from err
+        except WeConnectAuthError as err:
+            _LOGGER.warning("Authentifizierungsfehler: %s", err)
+            self._client = None
+            raise ConfigEntryAuthFailed("Authentifizierung fehlgeschlagen") from err
+        except WeConnectConnectionError as err:
+            _LOGGER.warning("Verbindungsfehler: %s", err)
+            raise UpdateFailed(f"Netzwerkfehler bei WeConnect-Verbindung: {err}") from err
         except Exception as err:
-            _LOGGER.warning("WeConnect Update fehlgeschlagen, Session wird zurückgesetzt")
-            self._weconnect = None
-            raise UpdateFailed("Fehler beim Abrufen der Fahrzeugdaten") from err
+            _LOGGER.warning("WeConnect Update fehlgeschlagen: %s", err)
+            self._client = None
+            raise UpdateFailed(f"Fehler beim Abrufen der Fahrzeugdaten: {err}") from err
 
     def async_cleanup(self) -> None:
-        """WeConnect-Session aufräumen."""
-        if self._weconnect is not None:
-            _LOGGER.debug("Beende WeConnect-Session")
-            try:
-                if hasattr(self._weconnect, "logout"):
-                    self._weconnect.logout()
-            except Exception:
-                _LOGGER.debug("Fehler beim Logout", exc_info=True)
-            self._weconnect = None
-
-    @staticmethod
-    def _safe_attr(obj, attr: str) -> str | None:
-        """Sicherer Zugriff auf WeConnect-Attribut."""
-        try:
-            a = getattr(obj, attr, None)
-            if a is not None and hasattr(a, "value") and a.value is not None:
-                return str(a.value)
-        except Exception:
-            pass
-        return None
+        """Session aufräumen."""
+        self._client = None

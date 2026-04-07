@@ -1,6 +1,5 @@
 """Image-Entitäten für die VW Images Integration."""
 
-import io
 import logging
 from datetime import datetime
 
@@ -10,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MAX_IMAGE_PIXELS
+from .const import DOMAIN
 from .coordinator import VWImagesCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,9 +45,9 @@ async def async_setup_entry(
 
     entities = []
     for vin, vehicle_data in coordinator.data.items():
-        picture_refs = vehicle_data.get("picture_refs", {})
+        image_bytes = vehicle_data.get("image_bytes", {})
         for picture_key, config in PICTURE_TYPES.items():
-            if picture_key in picture_refs:
+            if picture_key in image_bytes:
                 entities.append(
                     VehicleImageEntity(
                         coordinator,
@@ -117,35 +116,7 @@ class VehicleImageEntity(CoordinatorEntity[VWImagesCoordinator], ImageEntity):
             if vehicle_data is None:
                 return None
 
-            picture_refs = vehicle_data.get("picture_refs", {})
-            pictures_ref = picture_refs.get(self._picture_key)
-            if pictures_ref is None:
-                return None
-
-            # Bilder-Zugriff ist blocking → in Executor ausführen
-            def _get_image_bytes():
-                pil_image = pictures_ref.value
-                if pil_image is None:
-                    return None
-
-                # Größenprüfung gegen Decompression-Bombs
-                width, height = pil_image.size
-                if width * height > MAX_IMAGE_PIXELS:
-                    _LOGGER.warning(
-                        "Bild zu groß (%dx%d), überspringe",
-                        width, height,
-                    )
-                    return None
-
-                buf = io.BytesIO()
-                pil_image.save(buf, format="PNG")
-                image_bytes = buf.getvalue()
-                buf.close()
-                return image_bytes
-
-            self._cached_image_bytes = await self.hass.async_add_executor_job(
-                _get_image_bytes
-            )
+            self._cached_image_bytes = vehicle_data.get("image_bytes", {}).get(self._picture_key)
             return self._cached_image_bytes
 
         except Exception:

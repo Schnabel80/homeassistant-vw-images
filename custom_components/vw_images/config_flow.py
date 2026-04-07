@@ -91,24 +91,22 @@ class VWImagesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _validate_credentials(self, username: str, password: str) -> tuple[bool, str | None]:
         """Validiere WeConnect-Zugangsdaten. Gibt (success, error_key) zurück."""
-        try:
-            from weconnect import weconnect as wc_module
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-            wc = wc_module.WeConnect(
-                username=username,
-                password=password,
-                updateAfterLogin=False,
-                loginOnInit=False,
-            )
-            await self.hass.async_add_executor_job(wc.login)
+        from .weconnect_client import WeConnectAPIClient, WeConnectAuthError, WeConnectConnectionError
+
+        try:
+            session = async_get_clientsession(self.hass)
+            client = WeConnectAPIClient(session)
+            await client.login(username, password)
             return True, None
 
-        except ConnectionError:
+        except WeConnectConnectionError:
             _LOGGER.warning("Netzwerkfehler bei WeConnect-Verbindung")
             return False, "cannot_connect"
-        except TimeoutError:
-            _LOGGER.warning("Zeitüberschreitung bei WeConnect-Verbindung")
-            return False, "cannot_connect"
-        except Exception:
+        except WeConnectAuthError:
             _LOGGER.debug("Authentifizierung fehlgeschlagen", exc_info=True)
+            return False, "invalid_auth"
+        except Exception:
+            _LOGGER.debug("Unerwarteter Fehler bei der Authentifizierung", exc_info=True)
             return False, "invalid_auth"
