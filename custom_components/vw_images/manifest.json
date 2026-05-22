@@ -1,12 +1,13 @@
 {
   "domain": "vw_images",
   "name": "VW Images",
-  "version": "1.2.0",
-  "integration_type": "hub",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "",
-  "requirements": [],
   "dependencies": [],
-  "iot_class": "cloud_polling"
+  "documentation": "https://github.com/Schnabel80/homeassistant-vw-images",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Schnabel80/homeassistant-vw-images/issues",
+  "requirements": [],
+  "version": "1.2.0"
 }
