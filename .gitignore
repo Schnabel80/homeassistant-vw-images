@@ -20,3 +20,9 @@ venv/
 
 # Environment variables
 .env
+
+# Andere Integrationen – gehören nicht in dieses Repo
+/custom_components/navimow/
+/custom_components/weather_mow/
+/custom_components/dwd_weather/
+/custom_components/mock_lawn_mower/
