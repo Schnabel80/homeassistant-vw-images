@@ -86,49 +86,23 @@ class VWImagesCoordinator(DataUpdateCoordinator):
             if self._client is None:
                 await self._async_setup()
 
-            _LOGGER.debug("Aktualisiere WeConnect Fahrzeugdaten...")
-            vehicles_list = await self._client.get_vehicles()
-            self._last_refresh_time = time.monotonic()
-
-            vehicles: dict = {}
-            for vehicle_data in vehicles_list:
-                vin = vehicle_data.get("vin")
-                if not vin:
-                    continue
-
-                model = vehicle_data.get("model") or "VW Fahrzeug"
-                nickname = vehicle_data.get("nickname")
-
-                # Bild-URLs abrufen
-                image_urls = await self._client.get_vehicle_image_urls(vin)
-
-                # Bilder herunterladen
-                image_bytes: dict[str, bytes] = {}
-                for api_id, picture_key in _IMAGE_ID_MAP.items():
-                    if api_id not in image_urls:
-                        continue
-                    img = await self._client.download_image(image_urls[api_id])
-                    if img:
-                        image_bytes[picture_key] = img
-                        # Badge-Varianten: gleiche Basis-Bilder (ohne Overlay-Compositing)
-                        image_bytes[f"{picture_key}WithBadge"] = img
-
-                vehicles[vin] = {
-                    "vin": vin,
-                    "model": model,
-                    "nickname": nickname,
-                    "image_bytes": image_bytes,
-                }
-
-            _LOGGER.info("%d Fahrzeug(e) geladen", len(vehicles))
-            return vehicles
+            # Erster Versuch; bei Token-Ablauf einmal still re-loginen
+            try:
+                return await self._fetch_vehicles()
+            except WeConnectAuthError:
+                _LOGGER.info("Token abgelaufen – automatisches Re-Login läuft...")
+                await self._silent_relogin()
+                return await self._fetch_vehicles()
 
         except ConfigEntryAuthFailed:
             raise
         except WeConnectAuthError as err:
-            _LOGGER.warning("Authentifizierungsfehler: %s", err)
+            # Re-Login selbst fehlgeschlagen → echtes Auth-Problem → Nutzer fragen
+            _LOGGER.warning("Re-Login fehlgeschlagen: %s", err)
             self._client = None
-            raise ConfigEntryAuthFailed("Authentifizierung fehlgeschlagen") from err
+            raise ConfigEntryAuthFailed(
+                "WeConnect-Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen."
+            ) from err
         except WeConnectConnectionError as err:
             _LOGGER.warning("Verbindungsfehler: %s", err)
             raise UpdateFailed(f"Netzwerkfehler bei WeConnect-Verbindung: {err}") from err
@@ -136,6 +110,59 @@ class VWImagesCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("WeConnect Update fehlgeschlagen: %s", err)
             self._client = None
             raise UpdateFailed(f"Fehler beim Abrufen der Fahrzeugdaten: {err}") from err
+
+    async def _silent_relogin(self) -> None:
+        """Führt ein stilles Re-Login mit gespeicherten Zugangsdaten durch.
+
+        Wird automatisch aufgerufen wenn das Token abgelaufen ist (~2 h).
+        Löst keinen HA-Login-Dialog aus – der Nutzer merkt nichts davon.
+        """
+        username = self.config_entry.data[CONF_USERNAME]
+        password = self.config_entry.data[CONF_PASSWORD]
+        if self._client is None:
+            session = async_get_clientsession(self.hass)
+            self._client = WeConnectAPIClient(session)
+        await self._client.login(username, password)
+        _LOGGER.info("Automatisches Re-Login erfolgreich")
+
+    async def _fetch_vehicles(self) -> dict:
+        """Fahrzeugdaten und Bilder abrufen (ohne Fehlerbehandlung)."""
+        _LOGGER.debug("Aktualisiere WeConnect Fahrzeugdaten...")
+        vehicles_list = await self._client.get_vehicles()
+        self._last_refresh_time = time.monotonic()
+
+        vehicles: dict = {}
+        for vehicle_data in vehicles_list:
+            vin = vehicle_data.get("vin")
+            if not vin:
+                continue
+
+            model = vehicle_data.get("model") or "VW Fahrzeug"
+            nickname = vehicle_data.get("nickname")
+
+            # Bild-URLs abrufen
+            image_urls = await self._client.get_vehicle_image_urls(vin)
+
+            # Bilder herunterladen
+            image_bytes: dict[str, bytes] = {}
+            for api_id, picture_key in _IMAGE_ID_MAP.items():
+                if api_id not in image_urls:
+                    continue
+                img = await self._client.download_image(image_urls[api_id])
+                if img:
+                    image_bytes[picture_key] = img
+                    # Badge-Varianten: gleiche Basis-Bilder (ohne Overlay-Compositing)
+                    image_bytes[f"{picture_key}WithBadge"] = img
+
+            vehicles[vin] = {
+                "vin": vin,
+                "model": model,
+                "nickname": nickname,
+                "image_bytes": image_bytes,
+            }
+
+        _LOGGER.info("%d Fahrzeug(e) geladen", len(vehicles))
+        return vehicles
 
     def async_cleanup(self) -> None:
         """Session aufräumen."""
