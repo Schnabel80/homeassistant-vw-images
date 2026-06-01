@@ -9,6 +9,14 @@
           "password": "Passwort"
         }
       },
+      "reconfigure": {
+        "title": "VW Images – Neu konfigurieren",
+        "description": "Zugangsdaten aktualisieren (z.B. nach Passwortänderung).",
+        "data": {
+          "username": "E-Mail-Adresse",
+          "password": "Passwort"
+        }
+      },
       "reauth_confirm": {
         "title": "VW Images – Erneut authentifizieren",
         "description": "Deine Zugangsdaten sind nicht mehr gültig. Bitte gib deine aktuellen Daten ein.",

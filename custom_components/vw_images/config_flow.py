@@ -51,6 +51,40 @@ class VWImagesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(self, user_input=None):
+        """Neu konfigurieren: Zugangsdaten manuell aktualisieren.
+
+        Erscheint im Dreipunkt-Menü der Integration unter 'Neu konfigurieren'.
+        Ermöglicht das Aktualisieren von Zugangsdaten ohne die Integration
+        zu löschen und neu einzurichten.
+        """
+        errors = {}
+
+        if user_input is not None:
+            result, error_key = await self._validate_credentials(
+                user_input[CONF_USERNAME],
+                user_input[CONF_PASSWORD],
+            )
+
+            if result:
+                return self.async_update_reload_and_abort(
+                    self._get_reconfigure_entry(),
+                    data_updates=user_input,
+                )
+
+            errors["base"] = error_key
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_USERNAME): str,
+                    vol.Required(CONF_PASSWORD): str,
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_reauth(self, entry_data=None):
         """Reauth: Wird aufgerufen wenn ConfigEntryAuthFailed geworfen wird."""
         return await self.async_step_reauth_confirm()
