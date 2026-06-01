@@ -62,11 +62,19 @@ _API_HEADERS: dict[str, str] = {
 # --- Fehlerklassen ---
 
 class WeConnectAuthError(Exception):
-    """Authentifizierungsfehler."""
+    """Echtes Authentifizierungsproblem (falsche Zugangsdaten).
+
+    Nur für nachgewiesene Credential-Fehler (HTTP 400 + Auth0-Fehlermeldung).
+    Führt zu ConfigEntryAuthFailed → HA zeigt Anmelde-Dialog.
+    """
 
 
 class WeConnectConnectionError(Exception):
-    """Verbindungsfehler."""
+    """Verbindungs- oder Serverfehler.
+
+    Für HTTP 403/5xx, Timeouts und alle anderen transienten Fehler.
+    Führt zu UpdateFailed → HA versucht es beim nächsten Update erneut.
+    """
 
 
 # --- HTML-Form-Parser (stdlib, keine externe Abhängigkeit) ---
@@ -120,21 +128,29 @@ class WeConnectAPIClient:
     async def login(self, username: str, password: str) -> None:
         """Führt den vollständigen OIDC-Hybrid-Login durch."""
         # Schritt 1: OpenID-Konfiguration abrufen (liefert authorization_endpoint)
+        _LOGGER.debug("Schritt 1/3: OpenID-Konfiguration abrufen (%s)", _OPENID_CONFIG_URL)
         openid_config = await self._fetch_openid_config()
         authorization_endpoint = openid_config.get("authorization_endpoint")
         issuer = openid_config.get("issuer", _IDENTITY_HOST)
         if not authorization_endpoint:
-            raise WeConnectAuthError("authorization_endpoint nicht in OpenID-Config gefunden")
+            raise WeConnectConnectionError(
+                "authorization_endpoint nicht in OpenID-Config gefunden"
+            )
+        _LOGGER.debug("Schritt 1/3 OK: authorization_endpoint=%s issuer=%s",
+                      authorization_endpoint, issuer)
 
         # Schritt 2: Browser-Auth-Flow → Callback-URL mit Tokens
+        _LOGGER.debug("Schritt 2/3: Auth-Flow starten")
         async with aiohttp.ClientSession(
             cookie_jar=aiohttp.CookieJar(unsafe=True),
         ) as web_session:
             callback_url = await self._web_auth(
                 web_session, authorization_endpoint, issuer, username, password
             )
+        _LOGGER.debug("Schritt 2/3 OK: Callback-URL erhalten")
 
         # Schritt 3: Tokens direkt aus der Callback-URL lesen (kein HTTP-Austausch)
+        _LOGGER.debug("Schritt 3/3: Tokens aus Callback-URL lesen")
         self._parse_callback_tokens(callback_url)
 
     async def get_vehicles(self) -> list[dict]:
@@ -212,13 +228,21 @@ class WeConnectAPIClient:
 
     async def _fetch_openid_config(self) -> dict:
         """Ruft die OIDC-Discovery-Konfiguration ab."""
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": _USER_AGENT,
+            "x-android-package-name": "com.volkswagen.weconnect",
+        }
         try:
-            async with self._session.get(_OPENID_CONFIG_URL) as resp:
+            async with self._session.get(_OPENID_CONFIG_URL, headers=headers) as resp:
                 if resp.status != 200:
-                    raise WeConnectAuthError(
+                    # Server- oder Verbindungsfehler → kein Credential-Problem → Retry
+                    raise WeConnectConnectionError(
                         f"OpenID-Konfiguration nicht abrufbar: HTTP {resp.status}"
                     )
                 return await resp.json(content_type=None)
+        except WeConnectConnectionError:
+            raise
         except aiohttp.ClientError as err:
             raise WeConnectConnectionError(
                 f"Verbindungsfehler beim Abruf der OpenID-Konfiguration: {err}"
@@ -270,7 +294,7 @@ class WeConnectAPIClient:
                 raise WeConnectConnectionError(f"Verbindungsfehler: {err}") from err
 
         if not html_content:
-            raise WeConnectAuthError("Login-Seite konnte nicht geladen werden")
+            raise WeConnectConnectionError("Login-Seite konnte nicht geladen werden")
 
         # Legacy-Flow (emailPasswordForm vorhanden)?
         form_parser = _FormParser("emailPasswordForm")
@@ -294,23 +318,45 @@ class WeConnectAPIClient:
         """Auth0 Universal Login: POST auf /u/login mit state + action=default."""
         match = re.search(r'<input[^>]*name="state"[^>]*value="([^"]*)"', html)
         if not match:
-            raise WeConnectAuthError("state-Token nicht in Login-Seite gefunden")
+            # Kein state-Token → unerwartete Seite (AGB, Wartung, etc.) → Retry
+            raise WeConnectConnectionError(
+                "state-Token nicht in Login-Seite gefunden – unerwartete Serverantwort"
+            )
         state = match.group(1)
 
         login_url = f"{issuer}/u/login?state={state}"
-        form = aiohttp.FormData()
-        form.add_field("username", username)
-        form.add_field("password", password)
-        form.add_field("state", state)
-        form.add_field("action", "default")  # Pflichtfeld im Auth0 Universal Login
+        form_data = {
+            "username": username,
+            "password": password,
+            "state": state,
+            "action": "default",  # Pflichtfeld im Auth0 Universal Login
+        }
+        post_headers = {**_WEB_HEADERS, "Content-Type": "application/x-www-form-urlencoded"}
 
         try:
             async with session.post(
-                login_url, data=form, headers=_WEB_HEADERS, allow_redirects=False
+                login_url, data=form_data, headers=post_headers, allow_redirects=False
             ) as resp:
-                if resp.status not in (301, 302, 303):
-                    raise WeConnectAuthError(f"Login fehlgeschlagen: HTTP {resp.status}")
-                redirect_url = resp.headers.get("Location", "")
+                if resp.status in (301, 302, 303):
+                    redirect_url = resp.headers.get("Location", "")
+                elif resp.status == 400:
+                    # HTTP 400 = möglicherweise falsche Zugangsdaten (Auth0)
+                    body = await resp.text()
+                    if "wrong-email-credentials" in body or "wrong.email.credentials" in body:
+                        raise WeConnectAuthError(
+                            "Falscher Benutzername oder Passwort"
+                        )
+                    # Anderes 400 (z.B. Rate-Limit, ungültiger State) → Retry
+                    raise WeConnectConnectionError(
+                        f"Login-Formular abgelehnt: HTTP 400"
+                    )
+                else:
+                    # 403, 5xx, etc. → Server-/Verbindungsproblem → Retry
+                    raise WeConnectConnectionError(
+                        f"Login-Endpunkt nicht erreichbar: HTTP {resp.status}"
+                    )
+        except (WeConnectAuthError, WeConnectConnectionError):
+            raise
         except aiohttp.ClientError as err:
             raise WeConnectConnectionError(f"Verbindungsfehler beim Login: {err}") from err
 
@@ -387,13 +433,15 @@ class WeConnectAPIClient:
                             raise WeConnectAuthError(f"Unerwartete Callback-URL: {location}")
                         url = location
                     else:
-                        raise WeConnectAuthError(
-                            f"Unerwarteter Status bei Redirect: HTTP {resp.status}"
+                        raise WeConnectConnectionError(
+                            f"Unerwarteter Status bei Auth-Redirect: HTTP {resp.status}"
                         )
+            except (WeConnectAuthError, WeConnectConnectionError):
+                raise
             except aiohttp.ClientError as err:
                 raise WeConnectConnectionError(f"Verbindungsfehler: {err}") from err
 
-        raise WeConnectAuthError("Zu viele Redirects bei der Authentifizierung")
+        raise WeConnectConnectionError("Zu viele Redirects bei der Authentifizierung")
 
     def _parse_callback_tokens(self, callback_url: str) -> None:
         """Liest Access- und ID-Token direkt aus der Hybrid-Flow-Callback-URL.
