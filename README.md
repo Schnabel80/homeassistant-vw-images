@@ -1,9 +1,5 @@
 # VW Images – Home Assistant Integration
 
-> [!WARNING]
-> **Integration aktuell nicht funktionsfähig (Stand: Mai 2026)**
-> VW/Cariad hat den WeConnect API-Zugriff für alle nicht offiziell registrierten Apps gesperrt. Der Auth-Endpoint (`emea.bff.cariad.digital/user-login/v1/authorize`) gibt 403 zurück. Alle vergleichbaren Community-Projekte (evcc, volkswagencarnet, CarConnectivity) sind gleichermaßen betroffen. Details und Updates: [Issue #1](https://github.com/Schnabel80/homeassistant-vw-images/issues/1)
-
 A custom Home Assistant integration that provides vehicle images from your Volkswagen WeConnect account.
 
 ## Features
