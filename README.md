@@ -1,5 +1,9 @@
 # VW Images – Home Assistant Integration
 
+> ⚠️ **This integration is no longer working**
+>
+> Volkswagen has changed their WeConnect API. This integration is therefore **no longer functional** and is currently not being maintained.
+
 A custom Home Assistant integration that provides vehicle images from your Volkswagen WeConnect account.
 
 ## Features
